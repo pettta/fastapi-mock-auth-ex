@@ -1,5 +1,8 @@
 import argparse
 import subprocess 
+import platform
+
+is_apple = platform.system() != "Windows"
 
 parser = argparse.ArgumentParser(description="Run local components")
 parser.add_argument(
@@ -18,7 +21,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 if not args.requirements_skip:
-    subprocess.run(["pip", "install", "-r", "requirements.txt"])
+    processArgs = ["python", "-m", "pip", "install", "-r", "requirements.txt"] if is_apple else ["pip", "install", "-r", "requirements.txt"]
+    subprocess.run(processArgs)
 
 if args.variant == 'frontend':
     subprocess.run(["python", "frontend.py"])
