@@ -24,4 +24,6 @@ if args.variant == 'frontend':
     subprocess.run(["python", "frontend.py"])
     exit() 
 
-subprocess.run(["uvicorn", f"{args.variant}:app", "--reload"])
+port=9000 if args.variant == 'backend' else 9001
+
+subprocess.run(["uvicorn", f"{args.variant}:app", "--reload", "--host", "0.0.0.0", "--port", str(port)])
