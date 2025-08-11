@@ -1,6 +1,6 @@
 fastapi[standard]
 uvicorn[standard]
 pydantic[standard]
-pyjwt
 passlib[bcrypt]
+pyjwt
 httpx 

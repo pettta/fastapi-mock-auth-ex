@@ -24,6 +24,13 @@ Now use the operation GET with the path /users/me.
 ```
 python local_setup.py -v backend2
 ```
+
+we created a file here called secrets.json, usually you would use env vars or a secret store for this info, NEVER ACTUALLY HAVING THE FILE COMMITTED TO A PUBLIC REPO
+we generated that using the command: 
+```
+openssl rand -hex 32
+```
+
 ## Multistage Auth 
 
 ### Backend 
