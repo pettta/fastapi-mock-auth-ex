@@ -2,7 +2,11 @@
 python >= 3.10 
 
 # Different Authorization Flows 
-##  Resource Owner Password Credentials Grant (Password Flow): With Dependency Injection
+##  Resource Owner Password Credentials Grant (Password Flow): 
+Notes:
+- uses dependency injection with password flow: coupling the auth and API into one place 
+- uses HS256 = HMAC using SHA256 for signing our JWTs 
+
 First open a new bash instance, then depending on if you want: 
 
 (1) Extremely Basic backend
@@ -38,10 +42,18 @@ python local_setup.py -v backend3
 
 ## Implicit Auth (not doing because it is not legacy for not being secure)
 ## Auth/Code Flow with PKCE 
+Notes:
+- uses dependency injection with auth flow: decoupling the auth and API into two APIs, necessitating a bit more logic but is much more secure
+- uses RS256 = RSA using SHA256 for signing our JWTs. Has a private and public key: more secure & more complex 
 
-Open a basj instance, then run: 
+Open a bash instance, then run: 
 ```
 python local_setup.py -v oauth
+```
+
+Now Open another bash instance, then run: 
+```
+python local_setup.py -v backend4
 ```
 
 
