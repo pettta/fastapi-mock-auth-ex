@@ -8,9 +8,9 @@ parser = argparse.ArgumentParser(description="Run local components")
 parser.add_argument(
     "-v",
     "--variant",
-    choices=['backend', 'backend2', 'oauth', 'frontend'],
+    choices=['backend', 'backend2', 'backend3', 'oauth', 'frontend'],
     required=True,
-    help="Which component to run: backend | oauth | frontend",
+    help="Which component to run: backend | backend2 | backend3 | oauth | frontend",
 )
 parser.add_argument(
     "-r",
