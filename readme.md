@@ -37,21 +37,16 @@ python local_setup.py -v backend3
 ```
 
 ## Implicit Auth (not doing because it is not legacy for not being secure)
-## Multistage Auth 
+## Auth/Code Flow with PKCE 
 
-### Backend 
-
-
-## Auth 
-
-Next open another bahs instance, then run: 
+Open a basj instance, then run: 
 ```
 python local_setup.py -v oauth
 ```
 
-## Frontend
 
-Now open a final bash instance, then run: 
+Now open another bash instance, then run: 
 ```
 python local_setup.py -v frontend
 ```
+This will do the code challenge logic and act sort of like what our SPA does. 
