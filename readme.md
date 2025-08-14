@@ -45,6 +45,16 @@ python local_setup.py -v backend3
 Notes:
 - uses dependency injection with auth flow: decoupling the auth and API into two APIs, necessitating a bit more logic but is much more secure
 - uses RS256 = RSA using SHA256 for signing our JWTs. Has a private and public key: more secure & more complex 
+- We have a tokenVerifier in our backend for tokens from our proxy, and another one in the proxy to handle auth from external sources & normalizing to our std, see the structure below:
+```
+iss = issuer URL: str
+sub = subject id: str
+aud = audience URL: str
+iat = issued_at epoch time: int
+exp = expires_at epoch time: int 
+azp = authorized party: str 
+gty = grant type: str
+```
 
 Open a bash instance, then run: 
 ```
