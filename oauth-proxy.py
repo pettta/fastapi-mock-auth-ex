@@ -1,7 +1,80 @@
-from fastapi import FastAPI
+import json 
+from typing import Optional 
+
+from fastapi import (
+ FastAPI, 
+ Depends, 
+ HTTPException, 
+ status,
+ Security    
+) 
+from fastapi.security import (
+ HTTPBearer,
+ HTTPAuthorizationCredentials,
+ SecurityScopes    
+)
+import jwt 
+
+
+with open("secrets_auth.json") as f:
+    secret_data = json.load(f)
+
+
+class UnauthorizedException(HTTPException):
+    def __init__(self, detail: str, **kwargs):
+        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+class UnauthenticatedException(HTTPException):
+    def __init__(self):
+        super().__init__(status_code=status.HTTP_401_UNAUTHORIZED, detail="requires authentication")
+
+class OAuth2TokenVerifier:
+    def __init__(self, provider: str):
+        self.config = secret_data
+        self.google_jwk_client = jwt.PyJWKClient(f"https://www.googleapis.com/oauth2/v3/certs" )
+        self.microsoft_jwk_client = jwt.PyJWKClient(f"https://login.microsoftonline.com/common/discovery/v2.0/keys")
+    
+    async def verify(self, security_scopes: SecurityScopes, token: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer()), provider: Optional[str] = None ):
+      if token is None:
+        raise UnauthenticatedException
+
+      # Determine which JWK client to use
+      provider = provider or self.config.get("default_provider", "google")
+      if provider == "google":
+        jwks_client = self.google_jwk_client
+      elif provider == "microsoft":
+        jwks_client = self.microsoft_jwk_client
+      else:
+        jwks_client = None 
+
+      if not jwks_client: 
+          raise UnauthorizedException(str(error)) # TODO IMPLEMENT NORMAL EMAIL VERIFICATION 
+
+      try:
+          signing_key = jwks_client.get_signing_key_from_jwt(token.credentials).key
+      except jwt.exceptions.PyJWKClientError as error:
+          raise UnauthorizedException(str(error))
+      except jwt.exceptions.DecodeError as error:
+          raise UnauthorizedException(str(error))
+
+      try:
+          payload = jwt.decode(
+              token.credentials,
+              signing_key,
+              algorithms=self.config.auth0_algorithms,
+              audience=self.config.auth0_api_audience,
+              issuer=self.config.auth0_issuer,
+          )
+      except Exception as error:
+          raise UnauthorizedException(str(error))
+  
+      return payload
+
+# TODO (3) 
+# IMPLEMENT A GLOBAL TABLE THAT MAPS THE SUBJECT OF THE DECOCDED JWT TO OUR INTERNAL AUTHORIZATION LOGIC
+# USER FIELDS: internal_id: UUID, internal_refresh_token: str, google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
 
 app = FastAPI()
-
 
 @app.get("/auth")
 def authorize(code_challenge: str, code_challenge_method: str, redirect_uri: str):
@@ -18,16 +91,6 @@ def token(code_verifier: str):
     # TODO (7) Implement the logic for this endpoint
     pass
 
-
-# TODO (2) 
-# IMPLEMENT A SIMILAR TOKEN VERIFIER TO WHAT WE HAVE IN BACKEND 4 
-# HAVE IT SUPPORT MULTIPLE DIFFERENT AUTH PROVIDERS DEPENDING ON THE ARGS PASSED INTO THIS API 
-# IT WILL HAVE A DIFFERENT CLIENT FOR EACH OF THE EXTERNAL LOGINS WE WANT TO USE 
-
-
-# TODO (3) 
-# IMPLEMENT A TABLE THAT MAPS THE SUBJECT OF THE DECOCDED JWT TO OUR INTERNAL AUTHORIZATION LOGIC
-# USER FIELDS: internal_id: UUID, internal_refresh_token: str, google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
 
 
 # TODO (4)
