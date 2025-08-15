@@ -2,9 +2,21 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-# TODO (1) 
-# HAVE BASIC ENDPOINTS, GET AUTHORIZE(code_challenge, hashing algorithm, redirect URI)->one_time_code POST LOGIN(one_time_code), POST CREATE_ACCOUNT(one_time_code), AND POST TOKEN(code_verifier)
-# DONT BOTHER WITH THE LOGIC YET
+
+@app.get("/auth")
+def authorize(code_challenge: str, code_challenge_method: str, redirect_uri: str):
+    # TODO (5) Implement the logic for this endpoint
+    pass
+
+@app.post("/login")
+def login(one_time_code: str):
+    # TODO (6) Implement the logic for this endpoint
+    pass
+
+@app.post("/token")
+def token(code_verifier: str):
+    # TODO (7) Implement the logic for this endpoint
+    pass
 
 
 # TODO (2) 
