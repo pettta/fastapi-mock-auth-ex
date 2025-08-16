@@ -1,7 +1,7 @@
 import secrets
 import hashlib
 import base64
-import requests 
+import httpx 
 
 print("Frontend placeholder running. Add your frontend logic here.")
 
@@ -14,9 +14,9 @@ code_challenge = base64.urlsafe_b64encode(
 
 
 # Send Code Challenge to the auth server
-response = requests.post(
+response = httpx.get(
     "http://localhost:9001/auth",
-    json={
+    params={
         "code_challenge": code_challenge,
         "code_challenge_method": "S256"
     }

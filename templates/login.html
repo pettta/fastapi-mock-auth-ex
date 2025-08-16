@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .social-button {
+            width: 100%;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .google-button {
+            background-color: white;
+            color: #444;
+            border: 1px solid #ddd;
+        }
+        .microsoft-button {
+            background-color: #2672ec;
+        }
+        .divider {
+            text-align: center;
+            margin: 20px 0;
+            color: #777;
+        }
+        .divider:before, .divider:after {
+            content: "";
+            display: inline-block;
+            width: 40%;
+            border-top: 1px solid #ddd;
+            margin: 0 10px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sign In</h1>
+    <form method="post">
+        <input type="hidden" name="one_time_code" value="{{ one_time_code }}">
+        <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
+        
+        <button type="button" class="social-button google-button" onclick="alert('Google login not implemented')">
+            Sign in with Google
+        </button>
+        <button type="button" class="social-button microsoft-button" onclick="alert('Microsoft login not implemented')">
+            Sign in with Microsoft
+        </button>
+        
+        <div class="divider">or</div>
+        
+        <div class="form-group">
+            <label for="username">Username or Email</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <div class="form-group">
+            <button type="submit">Sign In</button>
+        </div>
+    </form>
+</body>
+</html>

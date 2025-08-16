@@ -5,7 +5,9 @@ from fastapi import (
  Depends, 
  HTTPException, 
  status,
- Security    
+ Security,
+ Form,
+ Request 
 ) 
 from fastapi.security import (
  HTTPBearer,
@@ -13,8 +15,10 @@ from fastapi.security import (
  SecurityScopes    
 )
 from fastapi.responses import (
- RedirectResponse   
+ RedirectResponse,
+ HTMLResponse
 )
+from fastapi.templating import Jinja2Templates
 import jwt 
 import secrets
 
@@ -87,8 +91,9 @@ USERS_MOCK_DB = {}
 
 ###=== In a normal app, you'd refactor this to a routers file ===###
 app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
-@app.get("/auth")
+@app.get("/auth/")
 async def authorize(code_challenge: str, code_challenge_method: str, redirect_uri: str):
     # Generate a unique one-time code
     one_time_code = secrets.token_urlsafe(32)
@@ -105,11 +110,17 @@ async def authorize(code_challenge: str, code_challenge_method: str, redirect_ur
     login_url = f"/login?one_time_code={one_time_code}&redirect_uri={redirect_uri}"
     return RedirectResponse(url=login_url)
 
-@app.post("/login")
-async def login(one_time_code: str, redirect_uri: str):
+@app.get("/login", response_class=HTMLResponse)
+async def login(request: Request, one_time_code: str, redirect_uri: str):
     # TODO (5) Actually do the logic for POST /login
-    # 1a. Have a form with username, password 
-    # 1b. Have a form with "sign in with Google"
+    return templates.TemplateResponse(
+       "login.html",
+       {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri}
+    )
+    
+
+@app.post("/login")
+async def login(request: Request):
     # 2. For the sign in with google logic basically use the look up table to see if it maps to any existing account in the table, and if not have them create a new account by routing them to /register with some prefilled in info
     # 3. For the username/password form, validate the credentials by
     #   3a: Verify the username is in the database
@@ -118,7 +129,8 @@ async def login(one_time_code: str, redirect_uri: str):
     # 4. update the AUTH_REQUEST_TABLE[one_time_code] entry with the user's internal_id, set enabled=true, timeout=5m from now in epoch time
     # 5. Redirect the user to the redirect URI (which would be the SPA) with a query parameter of one_time_code=one_time_code 
     #   --> this is where you implement logic on frontend to do a POST to /token w/ verifier and one-time-code
-    pass
+    pass 
+
 
 @app.post("/token")
 async def token(code_verifier: str):
@@ -167,6 +179,7 @@ async def get_jwks():
       ]
     }
     """
+    pass 
 
 
 

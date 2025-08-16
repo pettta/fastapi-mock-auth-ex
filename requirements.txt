@@ -3,4 +3,7 @@ uvicorn[standard]
 pydantic[standard]
 passlib[bcrypt]
 pyjwt
+
+
 httpx 
+jinja2
