@@ -21,6 +21,9 @@ from fastapi.responses import (
 from fastapi.templating import Jinja2Templates
 import jwt 
 import secrets
+import hashlib
+import uuid
+from datetime import datetime, timedelta
 
 
 
@@ -82,10 +85,52 @@ class OAuth2TokenVerifier:
 
 
 AUTHORIZATION_TABLE = {}
-# GLOBAL TABLE THAT MAPS THE GENERATED AUTH CODE TO {code_challenge: str, code_challenge_method: str, used: bool }
+# GLOBAL TABLE THAT MAPS THE GENERATED AUTH CODE TO {code_challenge: str, code_challenge_method: str, used: bool, user_id: str, enabled: bool, timeout: datetime}
 
 USERS_MOCK_DB = {} 
-# USER FIELDS: internal_id: UUID, internal_refresh_token: str, google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
+# USER FIELDS: internal_id: UUID, username: str, email: str, password_hash: str, internal_refresh_token: str, google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
+
+def hash_password(password: str) -> str:
+    """Simple password hashing - in production use bcrypt or argon2"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against hash"""
+    return hash_password(password) == hashed
+
+def create_user(username: str, email: str, password: str) -> str:
+    """Create a new user and return their internal_id"""
+    user_id = str(uuid.uuid4())
+    USERS_MOCK_DB[user_id] = {
+        "internal_id": user_id,
+        "username": username,
+        "email": email,
+        "password_hash": hash_password(password),
+        "internal_refresh_token": "",
+        "google_id": "",
+        "microsoft_id": "",
+        "last_login": datetime.utcnow(),
+        "disabled": False
+    }
+    return user_id
+
+def authenticate_user(username: str, password: str) -> Optional[dict]:
+    """Authenticate user by username/email and password"""
+    for user_id, user in USERS_MOCK_DB.items():
+        if (user["username"] == username or user["email"] == username) and not user["disabled"]:
+            if verify_password(password, user["password_hash"]):
+                return user
+    return None
+
+def build_redirect_url(redirect_uri: str, one_time_code: str) -> str:
+    """Build redirect URL with proper query parameter handling"""
+    # Ensure redirect_uri is a complete URL
+    if not redirect_uri.startswith(('http://', 'https://')):
+        redirect_uri = f"https://{redirect_uri}"
+    
+    # Check if redirect_uri already has query parameters
+    separator = "&" if "?" in redirect_uri else "?"
+    return f"{redirect_uri}{separator}one_time_code={one_time_code}"
 
 
 
@@ -120,16 +165,96 @@ async def login(request: Request, one_time_code: str, redirect_uri: str):
     
 
 @app.post("/login")
-async def login(request: Request):
-    # 2. For the sign in with google logic basically use the look up table to see if it maps to any existing account in the table, and if not have them create a new account by routing them to /register with some prefilled in info
-    # 3. For the username/password form, validate the credentials by
-    #   3a: Verify the username is in the database
-    #   3b: Hash the password and compare it to the stored hash
-    #   3c: verify the disabled field is not true
-    # 4. update the AUTH_REQUEST_TABLE[one_time_code] entry with the user's internal_id, set enabled=true, timeout=5m from now in epoch time
-    # 5. Redirect the user to the redirect URI (which would be the SPA) with a query parameter of one_time_code=one_time_code 
-    #   --> this is where you implement logic on frontend to do a POST to /token w/ verifier and one-time-code
-    pass 
+async def process_login(
+    request: Request,
+    one_time_code: str = Form(...),
+    redirect_uri: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    if one_time_code not in AUTHORIZATION_TABLE:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Invalid one-time code"}
+        )
+    
+    auth_entry = AUTHORIZATION_TABLE[one_time_code]
+    if auth_entry.get("used", False):
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "One-time code already used"}
+        )
+
+    # Authenticate user
+    user = authenticate_user(username, password)
+    if not user:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Invalid username or password"}
+        )
+    
+    # Update authorization table with user info
+    auth_entry.update({
+        "user_id": user["internal_id"],
+        "enabled": True,
+        "timeout": datetime.utcnow() + timedelta(minutes=5)
+    })
+    
+    # Update user's last login
+    user["last_login"] = datetime.utcnow()
+    
+    # Redirect to the frontend with the one_time_code
+    redirect_url = build_redirect_url(redirect_uri, one_time_code)
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
+@app.post("/create")
+async def create_account(
+    request: Request, one_time_code: str = Form(...),
+    redirect_uri: str = Form(...), username: str = Form(...),
+    email: str = Form(...), password: str = Form(...),
+    confirm_password: str = Form(...)
+):
+    # Confirm PKCE went through and user didnt blunder password creation
+    if one_time_code not in AUTHORIZATION_TABLE:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Invalid one-time code"}
+        )
+    auth_entry = AUTHORIZATION_TABLE[one_time_code]
+    if auth_entry.get("used", False):
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "One-time code already used"}
+        )
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Passwords do not match"}
+        )
+    
+
+    # Check if user already exists
+    for user in USERS_MOCK_DB.values():
+        if user["username"] == username or user["email"] == email:
+            return templates.TemplateResponse(
+                "login.html",
+                {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Username or email already exists"}
+            )
+    
+    # Create new user
+    user_id = create_user(username, email, password)
+    
+    # Update authorization table with new user info
+    auth_entry.update({
+        "user_id": user_id,
+        "enabled": True,
+        "timeout": datetime.utcnow() + timedelta(minutes=5)
+    })
+    
+    # Redirect to the frontend with the one_time_code
+    redirect_url = build_redirect_url(redirect_uri, one_time_code)
+    return RedirectResponse(url=redirect_url, status_code=302) 
 
 
 @app.post("/token")

@@ -25,7 +25,7 @@ if not args.requirements_skip:
     subprocess.run(processArgs)
 
 if args.variant == 'frontend':
-    subprocess.run(["python", "frontend.py"])
+    subprocess.run(["uvicorn", "frontend:app", "--reload", "--host", "0.0.0.0", "--port", "8080"])
     exit() 
 
 port=9000 if 'backend' in args.variant else 9001

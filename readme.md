@@ -58,7 +58,7 @@ gty = grant type: str
 
 Open a bash instance, then run: 
 ```
-python local_setup.py -v oauth
+python local_setup.py -v oauth-proxy
 ```
 
 Now Open another bash instance, then run: 
