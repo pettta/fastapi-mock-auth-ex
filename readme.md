@@ -72,3 +72,4 @@ Now open another bash instance, then run:
 python local_setup.py -v frontend
 ```
 This will do the code challenge logic and act sort of like what our SPA does. 
+Now navigate to http://localhost:8080/ and you will see a page displaying what info gets passed around in this flow. 
