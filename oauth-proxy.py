@@ -16,14 +16,16 @@ from fastapi.security import (
 )
 from fastapi.responses import (
  RedirectResponse,
- HTMLResponse
+ HTMLResponse,
+ JSONResponse 
 )
 from fastapi.templating import Jinja2Templates
 import jwt 
 import secrets
 import hashlib
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, UTC, timedelta
+import hashlib, base64
 
 
 
@@ -88,7 +90,11 @@ AUTHORIZATION_TABLE = {}
 # GLOBAL TABLE THAT MAPS THE GENERATED AUTH CODE TO {code_challenge: str, code_challenge_method: str, used: bool, user_id: str, enabled: bool, timeout: datetime}
 
 USERS_MOCK_DB = {} 
-# USER FIELDS: internal_id: UUID, username: str, email: str, password_hash: str, internal_refresh_token: str, google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
+# USER FIELDS: {
+#   internal_id: UUID, username: str, email: str, password_hash: str, internal_refresh_token: str, 
+#   refresh_expiry: datetime, access_expiry: datetime,
+#   google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
+# }
 
 def hash_password(password: str) -> str:
     """Simple password hashing - in production use bcrypt or argon2"""
@@ -109,7 +115,7 @@ def create_user(username: str, email: str, password: str) -> str:
         "internal_refresh_token": "",
         "google_id": "",
         "microsoft_id": "",
-        "last_login": datetime.utcnow(),
+        "last_login": datetime.now(UTC),
         "disabled": False
     }
     return user_id
@@ -197,11 +203,11 @@ async def process_login(
     auth_entry.update({
         "user_id": user["internal_id"],
         "enabled": True,
-        "timeout": datetime.utcnow() + timedelta(minutes=5)
+        "timeout": datetime.now(UTC) + timedelta(minutes=5)
     })
     
     # Update user's last login
-    user["last_login"] = datetime.utcnow()
+    user["last_login"] = datetime.now(UTC)
     
     # Redirect to the frontend with the one_time_code
     redirect_url = build_redirect_url(redirect_uri, one_time_code)
@@ -242,14 +248,14 @@ async def create_account(
                 {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Username or email already exists"}
             )
     
-    # Create new user
+    # Create new user TODO IN FUTURE, EMAIL VERIFICATION HERE 
     user_id = create_user(username, email, password)
     
     # Update authorization table with new user info
     auth_entry.update({
         "user_id": user_id,
         "enabled": True,
-        "timeout": datetime.utcnow() + timedelta(minutes=5)
+        "timeout": datetime.now(UTC) + timedelta(minutes=5)
     })
     
     # Redirect to the frontend with the one_time_code
@@ -258,16 +264,102 @@ async def create_account(
 
 
 @app.post("/token")
-async def token(code_verifier: str):
-    # TODO (6) Actually do the logic for POST /token
-    # 1a. Check if we have a one time code in the request body
-    # 2a. If we do, look up the AUTH_REQUEST_TABLE[one_time_code] entry, see if (a) it exists, (b) is enabled, and (c) is not expired (d) the hash of the code verifier = the code challenge
-    # 3a. If all those passed, generate a new 7 day refresh token to this user's database table, have it generate a JWT, return those as http-only cookies in the response
-    # 1b. Check if we have a JWT & Refresh token in the request body: 
-    # 2b: JWT & refresh not expired = do nothing 
-    # 3b: JWT expired = create new refresh token, then use that to create a new JWT (refresh token rotation)
-    # 4b: Refresh token expired = Error out the user --> frontend will give error message that tells them to relog in 
-    pass
+async def token(
+  request: Request,
+  code_verifier: str = Form(None),
+  one_time_code: str = Form(None),
+):
+  """
+  Grant flow:
+  a) PKCE: one_time_code + code_verifier => access & refresh
+  b) Refresh flow: cookies["refresh_token"] and/or cookies["access_token"]
+  """
+  now = datetime.now(UTC)
+  jwt_secret = secret_data.get("jwt_secret", "supersecret")
+  access_expires = timedelta(minutes=secret_data.get("access_token_minutes", 15))
+  refresh_expires = timedelta(days=7)
+
+  # 1a: PKCE exchange
+  if one_time_code:
+    auth = AUTHORIZATION_TABLE.get(one_time_code)
+    if not auth or not auth.get("enabled") or auth.get("used"):
+      raise HTTPException(status_code=400, detail="Invalid or used auth code")
+    if auth.get("timeout") < now:
+      raise HTTPException(status_code=400, detail="Auth code expired")
+
+    # verify code_verifier against stored challenge
+    method = auth.get("code_challenge_method")
+    challenge = auth.get("code_challenge")
+    if method == "S256":
+      dig = hashlib.sha256(code_verifier.encode()).digest()
+      v = base64.urlsafe_b64encode(dig).rstrip(b"=").decode()
+      if v != challenge:
+        raise HTTPException(status_code=400, detail="PKCE verification failed")
+    else:  # plain
+      if code_verifier != challenge:
+        raise HTTPException(status_code=400, detail="PKCE verification failed")
+
+    # ok, issue tokens
+    user_id = auth["user_id"]
+    # mark code used
+    auth["used"] = True
+
+    # gen refresh token
+    new_refresh = secrets.token_urlsafe(32)
+    # store on user
+    user = USERS_MOCK_DB[user_id]
+    user["internal_refresh_token"] = new_refresh
+    user["refresh_expiry"] = now + refresh_expires
+
+    # gen access token
+    at_payload = {"sub": user_id, "exp": now + access_expires}
+    access_token = jwt.encode(at_payload, jwt_secret, algorithm="HS256")
+
+    # return via httponly cookies
+    resp = {"detail": "login"}
+    response = JSONResponse(resp)
+    response.set_cookie("access_token", access_token, httponly=True, secure=True, expires=int(access_expires.total_seconds()))
+    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=int(refresh_expires.total_seconds()))
+    return response
+
+  # 1b: Refresh flow
+  rt = request.cookies.get("refresh_token")
+  at = request.cookies.get("access_token")
+  if not rt or not at:
+    raise HTTPException(status_code=401, detail="Missing credentials")
+
+  # find user by refresh token
+  user = None
+  for u in USERS_MOCK_DB.values():
+    if u.get("internal_refresh_token") == rt:
+      user = u
+      break
+  if not user:
+    raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+  # check refresh expiry
+  if user.get("refresh_expiry", now) < now:
+    raise HTTPException(status_code=401, detail="Refresh token expired")
+
+  # try to decode access token
+  try:
+    jwt.decode(at, jwt_secret, algorithms=["HS256"])
+    # still valid, nothing to do
+    return {"detail": "tokens still valid"}
+  except jwt.ExpiredSignatureError:
+    # rotate tokens
+    new_refresh = secrets.token_urlsafe(32)
+    user["internal_refresh_token"] = new_refresh
+    user["refresh_expiry"] = now + refresh_expires
+
+    new_at = jwt.encode({"sub": user["internal_id"], "exp": now + access_expires}, jwt_secret, algorithm="HS256")
+    resp = {"detail": "rotated"}
+    response = JSONResponse(resp)
+    response.set_cookie("access_token", new_at, httponly=True, secure=True, expires=int(access_expires.total_seconds()))
+    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=int(refresh_expires.total_seconds()))
+    return response
+  except jwt.PyJWTError:
+    raise HTTPException(status_code=401, detail="Invalid access token")
 
 
 @app.get("/.well-known/jwks.json")
