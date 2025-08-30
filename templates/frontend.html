@@ -55,7 +55,26 @@
         
         .login-btn.logged-in {
             background: #28a745;
-            cursor: default;
+        }
+        
+        .logout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            margin-left: 1rem;
+        }
+        
+        .logout-btn:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
         }
         
         .container {
@@ -131,8 +150,9 @@
     <nav class="navbar">
         <div class="logo">Frontend App</div>
         <div>
-            {% if tokens and not tokens.get('error') %}
+            {% if (tokens.get('access_token') or tokens.get('refresh_token')) and not tokens.get('error') %}
                 <span class="login-btn logged-in">✓ Logged In</span>
+                <button class="logout-btn" onclick="logout()">Logout</button>
             {% else %}
                 <button class="login-btn" onclick="initiateLogin()">Login</button>
             {% endif %}
@@ -186,7 +206,7 @@
                     <strong>❌ Token Exchange Failed:</strong> {{ tokens.error }}
                 </div>
             </div>
-            {% else %}
+            {% elif (tokens.get('access_token') and tokens.get('refresh_token')) %}
             <div class="status-card">
                 <div class="token-info">
                     <h3>✅ Token Exchange Successful!</h3>
@@ -227,6 +247,11 @@
             `&code_challenge_method=S256` +
             `&redirect_uri=${redirectUri}`;
         window.location.href = authUrl;
+    }
+    
+    function logout() {
+        // Redirect to logout endpoint which will clear cookies and redirect back
+        window.location.href = '/logout';
     }
     </script>
 </body>

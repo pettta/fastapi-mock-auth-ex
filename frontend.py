@@ -95,6 +95,20 @@ async def home(request: Request):
     )
 
 
+@app.get("/logout")
+async def logout(request: Request):
+    """Logout endpoint that clears cookies and redirects to home"""
+    print("🚪 User logging out - clearing cookies")
+    resp = RedirectResponse("/", status_code=302)
+    
+    # Clear all authentication cookies
+    resp.delete_cookie("access_token", path="/")
+    resp.delete_cookie("refresh_token", path="/")
+    resp.delete_cookie("session_id", path="/")
+    
+    return resp
+
+
 # Exchange cookies for tokens 
 async def exchange_cookies_for_tokens(access_token: Optional[str], refresh_token: Optional[str]):
     print("🔄 Attempting token refresh using cookies")
