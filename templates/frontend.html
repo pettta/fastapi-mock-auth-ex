@@ -216,16 +216,16 @@
 
     <script>
     function initiateLogin() {
-        const sessionId    = '{{ session_id }}';
+        const sessionId = '{{ session_id }}';
         const codeChallenge = '{{ code_challenge }}';
-        const redirectUri   = encodeURIComponent(
-        `http://localhost:8080/splash?session_id=${sessionId}`
+        const redirectUri = encodeURIComponent(
+            `http://localhost:8080/splash?session_id=${sessionId}`
         );
         const authUrl = 
-        `http://localhost:9001/auth` +
-        `?code_challenge=${codeChallenge}` +
-        `&code_challenge_method=S256` +
-        `&redirect_uri=${redirectUri}`;
+            `http://localhost:9001/auth` +
+            `?code_challenge=${codeChallenge}` +
+            `&code_challenge_method=S256` +
+            `&redirect_uri=${redirectUri}`;
         window.location.href = authUrl;
     }
     </script>

@@ -62,20 +62,35 @@ async def splash(
               httponly=True,
               secure=False,    # True in prod
               samesite="lax",
-              path="/"
+              path="/",
+              expires=ck.expires
             )
     return resp
 
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    # Generate PKCE state for new sessions
+    code_verifier = secrets.token_urlsafe(64)[:128]
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    session_id = secrets.token_urlsafe(16)
+    CODE_VERIFIERS[session_id] = code_verifier
+    
+    # Check if user is already logged in
     access = request.cookies.get("access_token")
     refresh = request.cookies.get("refresh_token")
+    
     return templates.TemplateResponse(
         "frontend.html",
         {
             "request": request,
-            "logged_in": bool(access or refresh),
+            "tokens": {"access_token": access, "refresh_token": refresh, 
+                       "msg": "You should not be accessing these in the code usually like I am here. its here for learning this process"},
+            "session_id": session_id,
+            "code_challenge": code_challenge,
+            "code_verifier": code_verifier,  # For demo purposes only
         },
     )
 
