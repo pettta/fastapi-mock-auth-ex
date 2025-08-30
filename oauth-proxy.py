@@ -276,7 +276,7 @@ async def token(
   """
   now = datetime.now(UTC)
   jwt_secret = secret_data.get("jwt_secret", "supersecret")
-  access_expires = timedelta(minutes=secret_data.get("access_token_minutes", 15))
+  access_expires = timedelta(minutes=secret_data.get("access_token_minutes", 30))
   refresh_expires = timedelta(days=7)
 
   # 1a: PKCE exchange
@@ -318,8 +318,8 @@ async def token(
     # return via httponly cookies
     resp = {"detail": "login"}
     response = JSONResponse(resp)
-    response.set_cookie("access_token", access_token, httponly=True, secure=True, expires=int(access_expires.total_seconds()))
-    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=int(refresh_expires.total_seconds()))
+    response.set_cookie("access_token", access_token, httponly=True, secure=True, expires=now + access_expires)
+    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=now + refresh_expires)
     return response
 
   # 1b: Refresh flow
@@ -356,8 +356,8 @@ async def token(
     new_at = jwt.encode({"sub": user["internal_id"], "exp": now + access_expires}, jwt_secret, algorithm="HS256")
     resp = {"detail": "rotated"}
     response = JSONResponse(resp)
-    response.set_cookie("access_token", new_at, httponly=True, secure=True, expires=int(access_expires.total_seconds()))
-    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=int(refresh_expires.total_seconds()))
+    response.set_cookie("access_token", new_at, httponly=True, secure=True, expires=now + access_expires)
+    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=now + refresh_expires)
     return response
   except jwt.PyJWTError:
     raise HTTPException(status_code=401, detail="Invalid access token")

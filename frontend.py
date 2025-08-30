@@ -1,7 +1,7 @@
 import secrets
 import hashlib
 import base64
-import webbrowser
+from datetime import datetime
 from fastapi import FastAPI, Request, Response, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -63,7 +63,7 @@ async def splash(
               secure=False,    # True in prod
               samesite="lax",
               path="/",
-              expires=ck.expires
+              max_age=ck.expires - int(datetime.now().timestamp())
             )
     return resp
 
