@@ -15,73 +15,83 @@ templates = Jinja2Templates(directory="templates")
 # Store code verifiers temporarily (in production, use secure session storage)
 CODE_VERIFIERS = {}
 
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request, one_time_code: Optional[str] = Query(None), session_id: Optional[str] = Query(None)):
-    # PKCE session setup: generate or retrieve code_verifier and code_challenge
+@app.get("/splash")
+async def splash(
+    request: Request,
+    one_time_code: Optional[str] = Query(None),
+    session_id:  Optional[str] = Query(None)
+):
+    # 1) generate / lookup PKCE: generate / retrieve code verifier/challenge 
     if not session_id:
-        print("🆕 New session - generating fresh PKCE challenge")
         code_verifier = secrets.token_urlsafe(64)[:128]
         code_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode('utf-8')).digest()
-        ).rstrip(b'=').decode('utf-8')
+          hashlib.sha256(code_verifier.encode()).digest()
+        ).rstrip(b"=").decode()
         session_id = secrets.token_urlsafe(16)
         CODE_VERIFIERS[session_id] = code_verifier
-        print(f"🔑 Stored code verifier for session: {session_id}")
     else:
-        print(f"🔄 Returning session detected: {session_id}")
         code_verifier = CODE_VERIFIERS.get(session_id)
-        if code_verifier:
-            code_challenge = base64.urlsafe_b64encode(
-                hashlib.sha256(code_verifier.encode('utf-8')).digest()
-            ).rstrip(b'=').decode('utf-8')
-            print(f"✅ Found existing code verifier for session: {session_id}")
-        else:
-            print(f"❌ No code verifier found for session: {session_id}")
-            # regenerate session
-            code_verifier = secrets.token_urlsafe(64)[:128]
-            code_challenge = base64.urlsafe_b64encode(
-                hashlib.sha256(code_verifier.encode('utf-8')).digest()
-            ).rstrip(b'=').decode('utf-8')
-            session_id = secrets.token_urlsafe(16)
-            CODE_VERIFIERS[session_id] = code_verifier
-            print(f"🔑 Regenerated code verifier for new session: {session_id}")
+        code_challenge = base64.urlsafe_b64encode(
+          hashlib.sha256(code_verifier.encode()).digest()
+        ).rstrip(b"=").decode()
 
-    # Attempt refresh flow using existing cookies if no PKCE exchange
+    # 2) if we dont have a one time code at this point, try to refresh tokens with cookies 
     tokens = None
-    if not one_time_code:
-        refresh_token = request.cookies.get('refresh_token')
-        access_token = request.cookies.get('access_token')
-        if refresh_token or access_token:
-            print("🔄 Attempting token refresh using cookies")
-            async with httpx.AsyncClient() as client:
-                httpx_response = await client.post(
-                    "http://localhost:9001/token",
-                    cookies={"access_token": access_token, "refresh_token": refresh_token}
-                )
-                if httpx_response.status_code == 200:
-                    tokens = httpx_response.json()
-                else:
-                    print(f"❌ Refresh flow failed: {httpx_response.status_code} {httpx_response.text}")
-    # PKCE authorization code exchange
+    refresh_token = request.cookies.get('refresh_token')
+    access_token = request.cookies.get('access_token')
+    if (not one_time_code) and (refresh_token or access_token):
+        tokens = await exchange_cookies_for_tokens(access_token, refresh_token)
+        
+    # 3) if we do have a one time code and a session id at this point,
     if one_time_code and session_id:
         print(f"🎫 Processing authorization code: {one_time_code} for session: {session_id}")
         tokens = await exchange_code_for_tokens(one_time_code, session_id)
-    response =  templates.TemplateResponse(
+
+    # 3) build a redirect back to “/” (no params)
+    resp = RedirectResponse("/", status_code=302)
+
+    # 4) persist PKCE state in cookies so "/" can read it
+    resp.set_cookie("session_id",  session_id,  path="/")
+
+    # 5) Copy Cookies from tokens endpoint to browser 
+    token_cookies = tokens.get('cookies', {}) 
+    if token_cookies:
+        for ck in token_cookies.jar:
+            resp.set_cookie(
+              ck.name, ck.value,
+              httponly=True,
+              secure=False,    # True in prod
+              samesite="lax",
+              path="/"
+            )
+    return resp
+
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    access = request.cookies.get("access_token")
+    refresh = request.cookies.get("refresh_token")
+    return templates.TemplateResponse(
         "frontend.html",
         {
             "request": request,
-            "code_challenge": code_challenge,
-            "session_id": session_id,
-            "tokens": tokens.get('msg'),
-            "one_time_code": one_time_code,
-            "code_verifier": code_verifier
-        }
-    ) 
-    cookies_dict = {key: value for key, value in tokens.get('cookies', {}).items()}
-    response.set_cookie(key="access_token", value=cookies_dict.get('access_token'), httponly=True, samesite='lax', domain='localhost', path='/')
-    response.set_cookie(key="refresh_token", value=cookies_dict.get('refresh_token'), httponly=True, samesite='lax', domain='localhost', path='/')
-    return response
+            "logged_in": bool(access or refresh),
+        },
+    )
 
+
+# Exchange cookies for tokens 
+async def exchange_cookies_for_tokens(access_token: Optional[str], refresh_token: Optional[str]):
+    print("🔄 Attempting token refresh using cookies")
+    async with httpx.AsyncClient() as client:
+        httpx_response = await client.post(
+            "http://localhost:9001/token",
+            cookies={"access_token": access_token, "refresh_token": refresh_token}
+        )
+        if httpx_response.status_code == 200:
+            tokens = httpx_response.json()
+        else:
+            print(f"❌ Refresh flow failed: {httpx_response.status_code} {httpx_response.text}")
 
 # Exchange PKCE code for tokens
 async def exchange_code_for_tokens(one_time_code: str, session_id: str):

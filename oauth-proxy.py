@@ -325,6 +325,7 @@ async def token(
   # 1b: Refresh flow
   rt = request.cookies.get("refresh_token")
   at = request.cookies.get("access_token")
+  print(f"🔄 Refresh token: {rt}, Access token: {at}")
   if not rt or not at:
     raise HTTPException(status_code=401, detail="Missing credentials")
 

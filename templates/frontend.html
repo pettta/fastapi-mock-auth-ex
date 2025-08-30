@@ -215,18 +215,19 @@
     </div>
 
     <script>
-        function initiateLogin() {
-            // Build the OAuth URL with current PKCE challenge and session_id
-            const sessionId = '{{ session_id }}';
-            const codeChallenge = '{{ code_challenge }}';
-            
-            // Include session_id in redirect_uri to maintain state
-            const redirectUri = encodeURIComponent(`http://localhost:8080/?session_id=${sessionId}`);
-            const authUrl = `http://localhost:9001/auth?code_challenge=${codeChallenge}&code_challenge_method=S256&redirect_uri=${redirectUri}`;
-            
-            // Navigate in same window instead of popup
-            window.location.href = authUrl;
-        }
+    function initiateLogin() {
+        const sessionId    = '{{ session_id }}';
+        const codeChallenge = '{{ code_challenge }}';
+        const redirectUri   = encodeURIComponent(
+        `http://localhost:8080/splash?session_id=${sessionId}`
+        );
+        const authUrl = 
+        `http://localhost:9001/auth` +
+        `?code_challenge=${codeChallenge}` +
+        `&code_challenge_method=S256` +
+        `&redirect_uri=${redirectUri}`;
+        window.location.href = authUrl;
+    }
     </script>
 </body>
 </html>
