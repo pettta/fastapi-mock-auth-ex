@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .login-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .login-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .login-btn.logged-in {
+            background: #28a745;
+        }
+        
+        .logout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            margin-left: 1rem;
+        }
+        
+        .logout-btn:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .hero {
+            text-align: center;
+            color: white;
+            margin: 4rem 0;
+        }
+        
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .hero p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 2rem;
+            margin: 2rem 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .status-card h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+        
+        .code-display {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            border-left: 4px solid #667eea;
+        }
+        
+        .token-info {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            color: #721c24;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">Frontend App</div>
+        <div>
+            {% if (tokens.get('access_token') or tokens.get('refresh_token')) and not tokens.get('error') %}
+                <span class="login-btn logged-in">✓ Logged In</span>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            {% else %}
+                <button class="login-btn" onclick="initiateLogin()">Login</button>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="hero">
+            <h1>Welcome to the Frontend</h1>
+            <p>OAuth 2.0 + PKCE Authentication Demo</p>
+        </div>
+
+        {% if error %}
+        <div class="status-card">
+            <div class="error">
+                <h3>❌ Session Error</h3>
+                <p>{{ error }}</p>
+                <button class="login-btn" onclick="window.location.href='/'">Start Fresh</button>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if session_id and not error %}
+        <div class="status-card">
+            <h3>🔐 PKCE Challenge Details</h3>
+            <p><strong>Session ID:</strong> <code>{{ session_id }}</code></p>
+            <div class="code-display" style="background: #fff3cd; border-left: 4px solid #ffc107;">
+                <strong>⚠️ Code Verifier (FOR DEMO ONLY):</strong><br>
+                {{ code_verifier or "Generated but hidden for security" }}
+                <br><small style="color: #856404;"><em><strong>WARNING:</strong> In a real application, the code verifier should NEVER be exposed to the client or displayed anywhere. This is shown for educational purposes only.</em></small>
+            </div>
+            <div class="code-display">
+                <strong>Code Challenge:</strong><br>
+                {{ code_challenge }}
+            </div>
+            {% if one_time_code %}
+            <div class="code-display" style="margin-top: 1rem; background: #e8f5e8; border-left: 4px solid #28a745;">
+                <strong>Authorization Code:</strong><br>
+                {{ one_time_code }}
+            </div>
+            {% endif %}
+            <p style="margin-top: 1rem;">
+                <small><em>Code verifier is securely stored on the server and will be used for token exchange.</em></small>
+            </p>
+        </div>
+        {% endif %}
+        {% if tokens %}
+            {% if tokens.get('error') %}
+            <div class="status-card">
+                <div class="error">
+                    <strong>❌ Token Exchange Failed:</strong> {{ tokens.error }}
+                </div>
+            </div>
+            {% elif (tokens.get('access_token') and tokens.get('refresh_token')) %}
+            <div class="status-card">
+                <div class="token-info">
+                    <h3>✅ Token Exchange Successful!</h3>
+                    <p>Successfully exchanged authorization code for tokens.</p>
+                    <details style="margin-top: 1rem;">
+                        <summary style="cursor: pointer; font-weight: bold; color: #28a745;">📄 View Token Details</summary>
+                        <pre style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-top: 0.5rem; overflow-x: auto;">{{ tokens | tojson(indent=2) }}</pre>
+                    </details>
+                </div>
+            </div>
+            {% endif %}
+        {% endif %}
+
+        {% if not tokens or tokens.get('error') %}
+        <div class="status-card">
+            <h3>🚀 How it works</h3>
+            <ol>
+                <li>Click the "Login" button to start OAuth flow</li>
+                <li>You'll be redirected to the OAuth provider</li>
+                <li>Login or create an account</li>
+                <li>You'll be redirected back here with your authorization code</li>
+                <li>The code will be automatically exchanged for tokens</li>
+            </ol>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+    function initiateLogin() {
+        const sessionId = '{{ session_id }}';
+        const codeChallenge = '{{ code_challenge }}';
+        const redirectUri = encodeURIComponent(
+            `http://localhost:8080/splash?session_id=${sessionId}`
+        );
+        const authUrl = 
+            `http://localhost:9001/auth` +
+            `?code_challenge=${codeChallenge}` +
+            `&code_challenge_method=S256` +
+            `&redirect_uri=${redirectUri}`;
+        window.location.href = authUrl;
+    }
+    
+    function logout() {
+        // Redirect to logout endpoint which will clear cookies and redirect back
+        window.location.href = '/logout';
+    }
+    </script>
+</body>
+</html>

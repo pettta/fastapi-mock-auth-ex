@@ -16,11 +16,16 @@ from fastapi.security import (
 )
 from fastapi.responses import (
  RedirectResponse,
- HTMLResponse
+ HTMLResponse,
+ JSONResponse 
 )
 from fastapi.templating import Jinja2Templates
 import jwt 
 import secrets
+import hashlib
+import uuid
+from datetime import datetime, UTC, timedelta
+import hashlib, base64
 
 
 
@@ -82,10 +87,56 @@ class OAuth2TokenVerifier:
 
 
 AUTHORIZATION_TABLE = {}
-# GLOBAL TABLE THAT MAPS THE GENERATED AUTH CODE TO {code_challenge: str, code_challenge_method: str, used: bool }
+# GLOBAL TABLE THAT MAPS THE GENERATED AUTH CODE TO {code_challenge: str, code_challenge_method: str, used: bool, user_id: str, enabled: bool, timeout: datetime}
 
 USERS_MOCK_DB = {} 
-# USER FIELDS: internal_id: UUID, internal_refresh_token: str, google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
+# USER FIELDS: {
+#   internal_id: UUID, username: str, email: str, password_hash: str, internal_refresh_token: str, 
+#   refresh_expiry: datetime, access_expiry: datetime,
+#   google_id: str, microsoft_id: str, last_login: datetime, disabled: bool
+# }
+
+def hash_password(password: str) -> str:
+    """Simple password hashing - in production use bcrypt or argon2"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against hash"""
+    return hash_password(password) == hashed
+
+def create_user(username: str, email: str, password: str) -> str:
+    """Create a new user and return their internal_id"""
+    user_id = str(uuid.uuid4())
+    USERS_MOCK_DB[user_id] = {
+        "internal_id": user_id,
+        "username": username,
+        "email": email,
+        "password_hash": hash_password(password),
+        "internal_refresh_token": "",
+        "google_id": "",
+        "microsoft_id": "",
+        "last_login": datetime.now(UTC),
+        "disabled": False
+    }
+    return user_id
+
+def authenticate_user(username: str, password: str) -> Optional[dict]:
+    """Authenticate user by username/email and password"""
+    for user_id, user in USERS_MOCK_DB.items():
+        if (user["username"] == username or user["email"] == username) and not user["disabled"]:
+            if verify_password(password, user["password_hash"]):
+                return user
+    return None
+
+def build_redirect_url(redirect_uri: str, one_time_code: str) -> str:
+    """Build redirect URL with proper query parameter handling"""
+    # Ensure redirect_uri is a complete URL
+    if not redirect_uri.startswith(('http://', 'https://')):
+        redirect_uri = f"https://{redirect_uri}"
+    
+    # Check if redirect_uri already has query parameters
+    separator = "&" if "?" in redirect_uri else "?"
+    return f"{redirect_uri}{separator}one_time_code={one_time_code}"
 
 
 
@@ -120,29 +171,196 @@ async def login(request: Request, one_time_code: str, redirect_uri: str):
     
 
 @app.post("/login")
-async def login(request: Request):
-    # 2. For the sign in with google logic basically use the look up table to see if it maps to any existing account in the table, and if not have them create a new account by routing them to /register with some prefilled in info
-    # 3. For the username/password form, validate the credentials by
-    #   3a: Verify the username is in the database
-    #   3b: Hash the password and compare it to the stored hash
-    #   3c: verify the disabled field is not true
-    # 4. update the AUTH_REQUEST_TABLE[one_time_code] entry with the user's internal_id, set enabled=true, timeout=5m from now in epoch time
-    # 5. Redirect the user to the redirect URI (which would be the SPA) with a query parameter of one_time_code=one_time_code 
-    #   --> this is where you implement logic on frontend to do a POST to /token w/ verifier and one-time-code
-    pass 
+async def process_login(
+    request: Request,
+    one_time_code: str = Form(...),
+    redirect_uri: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    if one_time_code not in AUTHORIZATION_TABLE:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Invalid one-time code"}
+        )
+    
+    auth_entry = AUTHORIZATION_TABLE[one_time_code]
+    if auth_entry.get("used", False):
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "One-time code already used"}
+        )
+
+    # Authenticate user
+    user = authenticate_user(username, password)
+    if not user:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Invalid username or password"}
+        )
+    
+    # Update authorization table with user info
+    auth_entry.update({
+        "user_id": user["internal_id"],
+        "enabled": True,
+        "timeout": datetime.now(UTC) + timedelta(minutes=5)
+    })
+    
+    # Update user's last login
+    user["last_login"] = datetime.now(UTC)
+    
+    # Redirect to the frontend with the one_time_code
+    redirect_url = build_redirect_url(redirect_uri, one_time_code)
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
+@app.post("/create")
+async def create_account(
+    request: Request, one_time_code: str = Form(...),
+    redirect_uri: str = Form(...), username: str = Form(...),
+    email: str = Form(...), password: str = Form(...),
+    confirm_password: str = Form(...)
+):
+    # Confirm PKCE went through and user didnt blunder password creation
+    if one_time_code not in AUTHORIZATION_TABLE:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Invalid one-time code"}
+        )
+    auth_entry = AUTHORIZATION_TABLE[one_time_code]
+    if auth_entry.get("used", False):
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "One-time code already used"}
+        )
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Passwords do not match"}
+        )
+    
+
+    # Check if user already exists
+    for user in USERS_MOCK_DB.values():
+        if user["username"] == username or user["email"] == email:
+            return templates.TemplateResponse(
+                "login.html",
+                {"request": request, "one_time_code": one_time_code, "redirect_uri": redirect_uri, "error": "Username or email already exists"}
+            )
+    
+    # Create new user TODO IN FUTURE, EMAIL VERIFICATION HERE 
+    user_id = create_user(username, email, password)
+    
+    # Update authorization table with new user info
+    auth_entry.update({
+        "user_id": user_id,
+        "enabled": True,
+        "timeout": datetime.now(UTC) + timedelta(minutes=5)
+    })
+    
+    # Redirect to the frontend with the one_time_code
+    redirect_url = build_redirect_url(redirect_uri, one_time_code)
+    return RedirectResponse(url=redirect_url, status_code=302) 
 
 
 @app.post("/token")
-async def token(code_verifier: str):
-    # TODO (6) Actually do the logic for POST /token
-    # 1a. Check if we have a one time code in the request body
-    # 2a. If we do, look up the AUTH_REQUEST_TABLE[one_time_code] entry, see if (a) it exists, (b) is enabled, and (c) is not expired (d) the hash of the code verifier = the code challenge
-    # 3a. If all those passed, generate a new 7 day refresh token to this user's database table, have it generate a JWT, return those as http-only cookies in the response
-    # 1b. Check if we have a JWT & Refresh token in the request body: 
-    # 2b: JWT & refresh not expired = do nothing 
-    # 3b: JWT expired = create new refresh token, then use that to create a new JWT (refresh token rotation)
-    # 4b: Refresh token expired = Error out the user --> frontend will give error message that tells them to relog in 
-    pass
+async def token(
+  request: Request,
+  code_verifier: str = Form(None),
+  one_time_code: str = Form(None),
+):
+  """
+  Grant flow:
+  a) PKCE: one_time_code + code_verifier => access & refresh
+  b) Refresh flow: cookies["refresh_token"] and/or cookies["access_token"]
+  """
+  now = datetime.now(UTC)
+  jwt_secret = secret_data.get("jwt_secret", "supersecret")
+  access_expires = timedelta(minutes=secret_data.get("access_token_minutes", 30))
+  refresh_expires = timedelta(days=7)
+
+  # 1a: PKCE exchange
+  if one_time_code:
+    auth = AUTHORIZATION_TABLE.get(one_time_code)
+    if not auth or not auth.get("enabled") or auth.get("used"):
+      raise HTTPException(status_code=400, detail="Invalid or used auth code")
+    if auth.get("timeout") < now:
+      raise HTTPException(status_code=400, detail="Auth code expired")
+
+    # verify code_verifier against stored challenge
+    method = auth.get("code_challenge_method")
+    challenge = auth.get("code_challenge")
+    if method == "S256":
+      dig = hashlib.sha256(code_verifier.encode()).digest()
+      v = base64.urlsafe_b64encode(dig).rstrip(b"=").decode()
+      if v != challenge:
+        raise HTTPException(status_code=400, detail="PKCE verification failed")
+    else:  # plain
+      if code_verifier != challenge:
+        raise HTTPException(status_code=400, detail="PKCE verification failed")
+
+    # ok, issue tokens
+    user_id = auth["user_id"]
+    # mark code used
+    auth["used"] = True
+
+    # gen refresh token
+    new_refresh = secrets.token_urlsafe(32)
+    # store on user
+    user = USERS_MOCK_DB[user_id]
+    user["internal_refresh_token"] = new_refresh
+    user["refresh_expiry"] = now + refresh_expires
+
+    # gen access token
+    at_payload = {"sub": user_id, "exp": now + access_expires}
+    access_token = jwt.encode(at_payload, jwt_secret, algorithm="HS256")
+
+    # return via httponly cookies
+    resp = {"detail": "login"}
+    response = JSONResponse(resp)
+    response.set_cookie("access_token", access_token, httponly=True, secure=True, expires=now + access_expires)
+    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=now + refresh_expires)
+    return response
+
+  # 1b: Refresh flow
+  rt = request.cookies.get("refresh_token")
+  at = request.cookies.get("access_token")
+  print(f"🔄 Refresh token: {rt}, Access token: {at}")
+  if not rt or not at:
+    raise HTTPException(status_code=401, detail="Missing credentials")
+
+  # find user by refresh token
+  user = None
+  for u in USERS_MOCK_DB.values():
+    if u.get("internal_refresh_token") == rt:
+      user = u
+      break
+  if not user:
+    raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+  # check refresh expiry
+  if user.get("refresh_expiry", now) < now:
+    raise HTTPException(status_code=401, detail="Refresh token expired")
+
+  # try to decode access token
+  try:
+    jwt.decode(at, jwt_secret, algorithms=["HS256"])
+    # still valid, nothing to do
+    return {"detail": "tokens still valid"}
+  except jwt.ExpiredSignatureError:
+    # rotate tokens
+    new_refresh = secrets.token_urlsafe(32)
+    user["internal_refresh_token"] = new_refresh
+    user["refresh_expiry"] = now + refresh_expires
+
+    new_at = jwt.encode({"sub": user["internal_id"], "exp": now + access_expires}, jwt_secret, algorithm="HS256")
+    resp = {"detail": "rotated"}
+    response = JSONResponse(resp)
+    response.set_cookie("access_token", new_at, httponly=True, secure=True, expires=now + access_expires)
+    response.set_cookie("refresh_token", new_refresh, httponly=True, secure=True, expires=now + refresh_expires)
+    return response
+  except jwt.PyJWTError:
+    raise HTTPException(status_code=401, detail="Invalid access token")
 
 
 @app.get("/.well-known/jwks.json")
